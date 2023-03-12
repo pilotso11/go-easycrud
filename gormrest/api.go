@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package gormcrud
+package gormrest
 
 import (
 	"errors"
@@ -30,7 +30,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/pilotso11/go-easycrud"
+	"github.com/pilotso11/go-easyrest"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -48,23 +48,23 @@ type Options[T any, D any] struct {
 	Delete    bool                                                       // Enable delete
 	Mutate    bool                                                       // Enable mutate
 	Create    bool                                                       // Enable create
-	Validator func(c *fiber.Ctx, action easycrud.Action, item ...T) bool // Validation function, item is empty if this is a find all query or an item is not found
+	Validator func(c *fiber.Ctx, action easyrest.Action, item ...T) bool // Validation function, item is empty if this is a find all query or an item is not found
 }
 
-// DefaultOptions returns a basic configuration allowing all CRUD operations and with no authentication
+// DefaultOptions returns a basic configuration allowing all rest operations and with no authentication
 func DefaultOptions[T any, D any]() Options[T, D] {
 	return Options[T, D]{
 		Delete: true,
 		Mutate: true,
 		Create: true,
-		Validator: func(c *fiber.Ctx, action easycrud.Action, item ...T) bool {
+		Validator: func(c *fiber.Ctx, action easyrest.Action, item ...T) bool {
 			return true
 		},
 	}
 }
 
 // Internal implementation
-type gcrud[T any, D any] struct {
+type grest[T any, D any] struct {
 	Options[T, D]
 	emptyT T // Empty template of T
 	emptyD D // Empty template of D
@@ -80,7 +80,7 @@ type gcrud[T any, D any] struct {
 // the child objects are read only.  If exposed in the json then they will be part of the GORM mutation actions.
 func RegisterApi[T any, D any](app fiber.Router, db *gorm.DB, path string, options Options[T, D]) {
 	// Create the implementation
-	impl := gcrud[T, D]{
+	impl := grest[T, D]{
 		Options: options,
 		db:      db,
 	}
@@ -90,15 +90,16 @@ func RegisterApi[T any, D any](app fiber.Router, db *gorm.DB, path string, optio
 	// This reflection also finds the key and child tags.
 	impl.dMap = buildDtoMap[T, D](impl.emptyT, impl.emptyD)
 
-	// Create the gcrud struct, assuming all the features are exposed.
-	fullApi := easycrud.Api[T, D]{
+	// Create the grest struct, assuming all the features are exposed.
+	fullApi := easyrest.Api[T, D]{
 		Path:        path,
 		Find:        impl.finder,
 		FindAll:     impl.findAll,
+		Search:      impl.search,
 		Mutate:      impl.mutate,
 		Create:      impl.create,
 		Delete:      impl.delete,
-		SubEntities: []easycrud.SubEntity[T, D]{},
+		SubEntities: []easyrest.SubEntity[T, D]{},
 		Validator:   impl.Validator,
 		Dto:         impl.copyToDto,
 	}
@@ -116,19 +117,19 @@ func RegisterApi[T any, D any](app fiber.Router, db *gorm.DB, path string, optio
 	// Create the API child maps
 	for _, c := range impl.dMap.children {
 		name := impl.dMap.tT.Field(c).Name
-		fullApi.SubEntities = append(fullApi.SubEntities, easycrud.SubEntity[T, D]{
+		fullApi.SubEntities = append(fullApi.SubEntities, easyrest.SubEntity[T, D]{
 			SubPath: strings.ToLower(name),
 			Get:     impl.children(c),
 		})
 	}
 
 	// Finally register the API with Fiber
-	easycrud.RegisterAPI(app, fullApi)
+	easyrest.RegisterAPI(app, fullApi)
 }
 
 // finder for single items.
 // Makes used of the gorm Find() function passing in a template object that has just the key set.
-func (a *gcrud[T, D]) finder(key string) (T, bool) {
+func (a *grest[T, D]) finder(key string) (T, bool) {
 	// Create the template item
 	item, err := a.emptyWithKey(key)
 	if err != nil {
@@ -136,7 +137,7 @@ func (a *gcrud[T, D]) finder(key string) (T, bool) {
 	}
 	// Find it.
 	// Preload joined tables so that the object is fully populated.
-	tx := a.db.Preload(clause.Associations).Find(&item, &item)
+	tx := a.db.Preload(clause.Associations).Limit(1).Find(&item, &item)
 
 	// Return the result or error
 	err2 := tx.Error
@@ -148,7 +149,7 @@ func (a *gcrud[T, D]) finder(key string) (T, bool) {
 }
 
 // emptyWithKey creates an empty template of T filling in only the key field.
-func (a *gcrud[T, D]) emptyWithKey(key string) (T, error) {
+func (a *grest[T, D]) emptyWithKey(key string) (T, error) {
 	// Start with our fully empty T
 	item := a.emptyT
 
@@ -180,15 +181,23 @@ func (a *gcrud[T, D]) emptyWithKey(key string) (T, error) {
 }
 
 // findAll returns all the objects of T as a slice
-func (a *gcrud[T, D]) findAll() []T {
+func (a *grest[T, D]) findAll() []T {
 	var all []T
 	a.db.Preload(clause.Associations).Find(&all)
 	return all
 }
 
+// search uses the D as a filter, providing it as a mask to the gorm find function
+func (a *grest[T, D]) search(filter D) []T {
+	tFilter := a.copyFromDto(a.emptyT, filter)
+	var all []T
+	a.db.Preload(clause.Associations).Find(&all, &tFilter)
+	return all
+}
+
 // mutate takes a Dto of type D and applies it to an existing object of T.
 // T is then persisted in the DB.
-func (a *gcrud[T, D]) mutate(orig T, edit D) (T, error) {
+func (a *grest[T, D]) mutate(orig T, edit D) (T, error) {
 	// Copy the dto
 	orig = a.copyFromDto(orig, edit)
 	// Save it to the database
@@ -197,7 +206,7 @@ func (a *gcrud[T, D]) mutate(orig T, edit D) (T, error) {
 }
 
 // create inserts a new T built from a template T and D mutation + key field
-func (a *gcrud[T, D]) create(edit D) (T, error) {
+func (a *grest[T, D]) create(edit D) (T, error) {
 	// Create the new empty object with a key set
 	key := reflect.ValueOf(edit).FieldByIndex(a.dMap.dtoKey)
 	keyString := ""
@@ -220,12 +229,9 @@ func (a *gcrud[T, D]) create(edit D) (T, error) {
 	return a.mutate(ret, edit)
 }
 
-const dField = 0
-const tField = 1
-
 // copyToDto does the heavy lifting of "cloning" T into its Dto D.
 // This is done using the previously generated to avoid reflective lookups.
-func (a *gcrud[T, D]) copyToDto(in T) (out D) {
+func (a *grest[T, D]) copyToDto(in T) (out D) {
 	// If Dto and base are the same ... just return the data
 	if a.dMap.tT == a.dMap.dT {
 		val := reflect.ValueOf(in)
@@ -238,14 +244,14 @@ func (a *gcrud[T, D]) copyToDto(in T) (out D) {
 	// For each field, set the Dto value
 	for _, pair := range a.dMap.links {
 		// Get our source
-		from := reflect.ValueOf(in).Field(pair[tField])
+		from := reflect.ValueOf(in).FieldByIndex(pair.tField)
 
 		// Get our destination
-		valDest := valObj.Field(pair[dField])
+		valDest := valObj.FieldByIndex(pair.dField)
 		if valDest.CanSet() {
 			valDest.Set(from)
 		} else {
-			panic(fmt.Sprintf("immutable field '%s' found in dto transformation", a.dMap.dT.Field(pair[dField]).Name))
+			panic(fmt.Sprintf("immutable field '%s' found in dto transformation", a.dMap.dT.FieldByIndex(pair.dField).Name))
 		}
 	}
 	return out
@@ -253,7 +259,7 @@ func (a *gcrud[T, D]) copyToDto(in T) (out D) {
 
 // copyFromDto does the heavy lifting for mutation by copying fields from the Dto back into the source for persisting.
 // This is done using the previously generated to avoid reflective lookups.
-func (a *gcrud[T, D]) copyFromDto(out T, in D) T {
+func (a *grest[T, D]) copyFromDto(out T, in D) T {
 	// Inbound there is no shortcut for identical types because of potentially missing json fields
 	// We still need to copy the fields
 
@@ -269,14 +275,14 @@ func (a *gcrud[T, D]) copyFromDto(out T, in D) T {
 	// For each Dto field copy its value
 	for _, pair := range a.dMap.links {
 		// Get our destination field
-		valDest := valObj.Field(pair[tField])
+		valDest := valObj.FieldByIndex(pair.tField)
 
 		// And our source value
-		from := valIn.Field(pair[dField])
+		from := valIn.FieldByIndex(pair.dField)
 		if valDest.CanSet() {
 			valDest.Set(from)
 		} else {
-			panic(fmt.Sprintf("immutable field '%s' applying dto to source", a.dMap.tT.Field(pair[tField]).Name))
+			panic(fmt.Sprintf("immutable field '%s' applying dto to source", a.dMap.tT.FieldByIndex(pair.tField).Name))
 		}
 	}
 	return out
@@ -284,14 +290,14 @@ func (a *gcrud[T, D]) copyFromDto(out T, in D) T {
 
 // delete simply using GORM to delete the specified item.
 // If gorm.Model is used then the object is not deleted, it is just marked as inactive in the database.
-func (a *gcrud[T, D]) delete(item T) (T, error) {
+func (a *grest[T, D]) delete(item T) (T, error) {
 	err := a.db.Delete(&item).Error
 	return item, err
 }
 
 // children supplies a function implementation to source and return a specific child field
 // identified as `rest:"child"`.  If the field is not a slice or array a panic will be triggered.
-func (a *gcrud[T, D]) children(c int) func(item T) []any {
+func (a *grest[T, D]) children(c int) func(item T) []any {
 	return func(item T) []any {
 		// Create return array
 		var res []any
@@ -305,8 +311,13 @@ func (a *gcrud[T, D]) children(c int) func(item T) []any {
 	}
 }
 
+type fieldLink struct {
+	dField []int
+	tField []int
+}
+
 type dtoMap struct {
-	links    [][]int // 0 = dto, 1 = obj
+	links    []fieldLink // 0 = dto, 1 = obj
 	objKey   []int
 	dtoKey   []int
 	children []int
@@ -334,9 +345,13 @@ func buildDtoMap[T any, D any](emptyT T, emptyD D) (dMap dtoMap) {
 			if !ok {
 				panic(fmt.Sprintf("Missing dto field %s on base type %s", dF.Name, tT.Name()))
 			}
-			j := tF.Index[0]
+			if tF.Type != dF.Type {
+				panic(fmt.Sprintf("Mismatched types on %s.%s and %s.%s", dT.Name(), dF.Name, tT.Name(), tF.Name))
+			}
+			tIndex := tF.Index
+			dIndex := dF.Index
 			if tF.Name == dF.Name {
-				dMap.links = append(dMap.links, []int{i, j})
+				dMap.links = append(dMap.links, fieldLink{dField: dIndex, tField: tIndex})
 			}
 		}
 	}
@@ -346,14 +361,14 @@ func buildDtoMap[T any, D any](emptyT T, emptyD D) (dMap dtoMap) {
 	for i := 0; i < tT.NumField(); i++ {
 		tF := tT.Field(i)
 		if tF.IsExported() {
-			tags := tF.Tag.Get("crud")
+			tags := tF.Tag.Get("rest")
 			// Identify the key field
 			if strings.Contains(tags, "key") {
 				dMap.objKey = tF.Index
 				keyFound = true
-				index, ok := dT.FieldByName(tF.Name)
+				keyField, ok := dT.FieldByName(tF.Name)
 				if ok {
-					dMap.dtoKey = index.Index
+					dMap.dtoKey = keyField.Index
 				} else {
 					panic("Key field " + tF.Name + " missing on Dto type " + dT.Name())
 				}

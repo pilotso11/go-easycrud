@@ -1,4 +1,4 @@
-module github.com/pilotso11/go-easycrud
+module github.com/pilotso11/go-easyrest
 
 go 1.20
 

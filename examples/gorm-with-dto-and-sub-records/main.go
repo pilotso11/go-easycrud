@@ -26,37 +26,46 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/pilotso11/go-easycrud/gormcrud"
+	"github.com/pilotso11/go-easyrest/gormrest"
 	"github.com/xo/dburl"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
+// This example implements a more complex structure where DTOs are used and child objects are exposed
+// For example:  http://localhost:8080/api/v1/department/Sales/employees to list the employees of the sales department.
+// The Location is also exposed on the employee directly http://localhost:8080/api/v1/employees/1
+// And Locations are also exposed http://localhost:8080/api/v§/locations/
+
 type Department struct {
-	DepartmentID uint `gorm:"primaryKey"`
+	ID        string     `gorm:"primaryKey;uniqueIndex"`
+	Employees []Employee `rest:"child"`
+}
+
+type DepartmentDto struct {
+	ID string
 }
 
 type Employee struct {
 	gorm.Model
-	EmployeeNo   int `crud:"key"`
 	Name         string
-	DepartmentID uint
+	DepartmentID string // Foreign key
+	LocationID   string
+	Location     Location
 }
 
 type EmployeeDto struct {
-	gorm.Model
-	EmployeeNo   int `crud:"key"`
+	ID           uint
 	Name         string
 	DepartmentID string
+	Location     Location
 }
 
-// Exposes a CRUD API for "Employee" backed by GORM on http://127.0.0.1:8080/api/v1/employees
-// Using the Employee type as both the data object and as the transport object.
-// With GET employees/ to get all
-// With GET employees/:EmployeeNo to get one
-// With PUT employees/:EmployeeNo to change one
-// With DELETE employees/:EmployeeNo to delete one
-// With POST employees/ to create a new one
+type Location struct {
+	Name    string `gorm:"primaryKey;uniqueIndex" rest:"key"`
+	Address string
+}
+
 func main() {
 	app := fiber.New()
 	dbUrl := "sqlite:test.db"
@@ -65,14 +74,29 @@ func main() {
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
-	err = db.AutoMigrate(&Employee{})
+	err = db.AutoMigrate(&Employee{}, &Department{}, &Location{})
 	if err != nil {
 		log.Fatalf("Gorm migration error: %v", err)
 	}
 
 	api := app.Group("/api")
 	apiV1 := api.Group("/v1")
-	gormcrud.RegisterApi(apiV1, db, "employees", gormcrud.DefaultOptions[Employee, Employee]())
+	gormrest.RegisterApi(apiV1, db, "employees", gormrest.DefaultOptions[Employee, EmployeeDto]())
+	gormrest.RegisterApi(apiV1, db, "departments", gormrest.DefaultOptions[Department, DepartmentDto]())
+	gormrest.RegisterApi(apiV1, db, "locations", gormrest.DefaultOptions[Location, Location]())
+
+	// Create some test data
+	elm := Location{Name: "Elm", Address: "1 Wall Street"}
+	oak := Location{Name: "Oak", Address: "77 Oak Street"}
+	db.Save(&elm)
+	db.Save(&oak)
+	management := Department{ID: "Management", Employees: []Employee{{Name: "Cherry", Location: elm}}}
+	sales := Department{ID: "Sales", Employees: []Employee{{Name: "Sandy", Location: oak}, {Name: "Steven", Location: oak}}}
+	engineering := Department{ID: "Engineering", Employees: []Employee{{Name: "Emily", Location: elm}, {Name: "Eugene", Location: oak}}}
+
+	db.Save(&management)
+	db.Save(&sales)
+	db.Save(&engineering)
 
 	err = app.Listen("127.0.0.1:8080")
 	if err != nil {

@@ -20,15 +20,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package easycrud
+package easyrest
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/pilotso11/go-easycrud/util"
+	"github.com/pilotso11/go-easyrest/util"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -52,6 +53,21 @@ func ItemToDto(i TestItem) TestItemDto {
 type TestItemDto struct {
 	Id   string
 	Data string
+}
+
+func (d TestItemDto) Match(v TestItem) bool {
+	match := true
+	if d.Id > "" {
+		if v.Id != d.Id {
+			match = false
+		}
+	}
+	if d.Data > "" {
+		if !strings.Contains(v.Data, d.Data) {
+			match = false
+		}
+	}
+	return match
 }
 
 type TestData struct {
@@ -84,6 +100,18 @@ func setup() (*fiber.App, *TestData) {
 				all = append(all, v)
 			}
 			return all
+		},
+		Search: func(filter TestItemDto) []TestItem {
+			data.lock.Lock()
+			defer data.lock.Unlock()
+			var all []TestItem
+			for _, v := range data.entries {
+				if filter.Match(v) {
+					all = append(all, v)
+				}
+			}
+			return all
+
 		},
 		Mutate: func(item TestItem, dto TestItemDto) (TestItem, error) {
 			data.lock.Lock()
@@ -579,4 +607,38 @@ func TestRemoveReadOnly(t *testing.T) {
 
 	})
 
+}
+
+func TestFilter(t *testing.T) {
+	assert.NotPanics(t, func() {
+		app, data := setup()
+		defer cleanup(app)
+		data.permit = false
+		code, resp, err := util.GetJsonSliceRequestResponse(app, "POST", "/test/filter", TestItemDto{Data: "data"})
+		assert.Equal(t, 401, code)
+		data.permit = true
+
+		code, resp, err = util.GetJsonSliceRequestResponse(app, "POST", "/test/filter", TestItemDto{Data: "data"})
+		assert.Equal(t, 200, code)
+		assert.Nil(t, err)
+		assert.Len(t, resp, 2)
+
+		code, resp, err = util.GetJsonSliceRequestResponse(app, "POST", "/test/filter", TestItemDto{Data: "data2"})
+		assert.Equal(t, 200, code)
+		assert.Nil(t, err)
+		assert.Len(t, resp, 1)
+
+	})
+}
+
+func TestFilterBadBody(t *testing.T) {
+	assert.NotPanics(t, func() {
+		app, data := setup()
+		defer cleanup(app)
+		data.permit = true
+		code, _, _ := util.GetStringSliceRequestResponse(app, "POST", "/test/filter", "")
+		assert.Equal(t, 400, code)
+		data.permit = true
+
+	})
 }

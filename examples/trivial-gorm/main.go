@@ -26,7 +26,7 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/pilotso11/go-easycrud/gormcrud"
+	"github.com/pilotso11/go-easyrest/gormrest"
 	"github.com/xo/dburl"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -35,6 +35,7 @@ import (
 // This example exposes a CRUD API for "Employee" backed by GORM on http://127.0.0.1:8080/api/v1/employees
 // Using the Employee type as both the data object and as the transport object.
 // With GET employees/ to get all
+// With POST employees/filter to search with exact matches ( "like" is not yet implemented )
 // With GET employees/:id to get one
 // With PUT employees/:id to change one
 // With DELETE employees/:id to delete one
@@ -62,7 +63,7 @@ func main() {
 
 	api := app.Group("/api")
 	apiV1 := api.Group("/v1")
-	gormcrud.RegisterApi(apiV1, db, "employees", gormcrud.DefaultOptions[Employee, Employee]())
+	gormrest.RegisterApi(apiV1, db, "employees", gormrest.DefaultOptions[Employee, Employee]())
 
 	// Add some test records
 	db.Save(&Employee{

@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package gormcrud
+package gormrest
 
 import (
 	"flag"
@@ -28,8 +28,8 @@ import (
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/pilotso11/go-easycrud"
-	"github.com/pilotso11/go-easycrud/util"
+	"github.com/pilotso11/go-easyrest"
+	"github.com/pilotso11/go-easyrest/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/xo/dburl"
 	"gorm.io/driver/postgres"
@@ -39,8 +39,8 @@ import (
 
 type TestItem struct {
 	gorm.Model
-	Key      string      `gorm:"uniqueIndex" crud:"key"`
-	Children []TestChild `crud:"child"`
+	Key      string      `gorm:"uniqueIndex" rest:"key"`
+	Children []TestChild `rest:"child"`
 	Field1   int
 	Field2   int
 	Field3   int `json:"-"`
@@ -98,7 +98,7 @@ func setup(t *testing.T) (*fiber.App, *gorm.DB) {
 		Delete: true,
 		Mutate: true,
 		Create: true,
-		Validator: func(c *fiber.Ctx, action easycrud.Action, item ...TestItem) bool {
+		Validator: func(c *fiber.Ctx, action easyrest.Action, item ...TestItem) bool {
 			return allow
 		},
 	})
@@ -107,7 +107,7 @@ func setup(t *testing.T) (*fiber.App, *gorm.DB) {
 		Delete: true,
 		Mutate: true,
 		Create: true,
-		Validator: func(c *fiber.Ctx, action easycrud.Action, item ...TestItem) bool {
+		Validator: func(c *fiber.Ctx, action easyrest.Action, item ...TestItem) bool {
 			return allow
 		},
 	})
@@ -197,6 +197,30 @@ func TestFindAll(t *testing.T) {
 		assert.Equal(t, "id2", ret[1]["Key"])
 	})
 
+}
+
+func TestFilter(t *testing.T) {
+	app, _ := setup(t)
+	defer cleanup(app)
+
+	assert.NotPanics(t, func() {
+		allow = true
+		code, ret, err := util.GetJsonSliceRequestResponse(app, "POST", "/test/filter", TestItemDto{
+			Field2: 20,
+		})
+		assert.Equal(t, 200, code)
+		assert.Nil(t, err)
+		assert.Len(t, ret, 2)
+
+		code, ret, err = util.GetJsonSliceRequestResponse(app, "POST", "/test/filter", TestItemDto{
+			Field2: 20,
+			Key:    "id1",
+		})
+		assert.Equal(t, 200, code)
+		assert.Nil(t, err)
+		assert.Len(t, ret, 1)
+
+	})
 }
 
 func TestMutate(t *testing.T) {
@@ -404,7 +428,7 @@ func TestInvalidDtoMapping(t *testing.T) {
 			Delete: true,
 			Mutate: true,
 			Create: true,
-			Validator: func(c *fiber.Ctx, action easycrud.Action, item ...TestItem) bool {
+			Validator: func(c *fiber.Ctx, action easyrest.Action, item ...TestItem) bool {
 				return allow
 			},
 		})
@@ -419,7 +443,7 @@ func TestMissingKey(t *testing.T) {
 			Delete: true,
 			Mutate: true,
 			Create: true,
-			Validator: func(c *fiber.Ctx, action easycrud.Action, item ...TestItem) bool {
+			Validator: func(c *fiber.Ctx, action easyrest.Action, item ...TestItem) bool {
 				return allow
 			},
 		})

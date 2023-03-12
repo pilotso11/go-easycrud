@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package easycrud
+package easyrest
 
 import (
 	"log"
@@ -33,8 +33,8 @@ type SubEntity[T any, D any] struct {
 	Get     func(item T) []any
 }
 
-// Api is the easy rest-crud API for Fiber.
-// Supply functions to find and mutate data objects and the Api will handle the CRUD implementation.
+// Api is the easy rest/crud API for Fiber.
+// Supply functions to find and mutate data objects and the Api will handle the rest implementation.
 // The Api is defined by two generic types.
 // The first, T, is the underlying dats type.
 // The second, D, is a data transport type (DTO) used for the JSON in the API.
@@ -45,6 +45,7 @@ type Api[T any, D any] struct {
 	Path        string                                            // The path of the api under the parent
 	Find        func(key string) (T, bool)                        // Find one method
 	FindAll     func() []T                                        // Find all method
+	Search      func(D) []T                                       // Search using D as a filter
 	Mutate      func(T, D) (T, error)                             // Mutation function for "PUT".  If nil, no mutation is exposed
 	Create      func(D) (T, error)                                // Create function for "PUT".  If nil, creation is not exposed
 	Delete      func(T) (T, error)                                // // Mutation function for "DELETE", if nil, no mutation is exposed
@@ -77,6 +78,13 @@ func RegisterAPI[T any, D any](api fiber.Router, genericApi Api[T, D]) {
 		generic.Post("/", createOne[T, D](genericApi))
 
 	}
+
+	// The POST search  (if provided)
+	if genericApi.Search != nil {
+		generic.Post("/filter", search[T, D](genericApi))
+
+	}
+
 	// The SubEntity getters
 	// This is before the item Getter to ensure any name collision resolves to the SubEntity
 	for _, subEntity := range genericApi.SubEntities {
@@ -112,6 +120,31 @@ func getAll[T any, D any](api Api[T, D]) fiber.Handler {
 		// Send as JSON
 		var all []D
 		for _, v := range api.FindAll() {
+			all = append(all, api.Dto(v))
+		}
+		return c.JSON(all)
+	}
+}
+
+// getAll returns all entities as their Jdo type
+func search[T any, D any](api Api[T, D]) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		// Perms check
+		if api.Validator != nil && !api.Validator(c, ActionGetAll) {
+			return c.SendStatus(fiber.StatusUnauthorized)
+		}
+
+		var filter D
+		if err := c.BodyParser(&filter); err != nil {
+			log.Printf("Error parsing body %v\n", err)
+			return c.SendStatus(fiber.StatusBadRequest)
+		}
+
+		// Search with filter
+		// Transform to DTO
+		// Send as JSON
+		var all []D
+		for _, v := range api.Search(filter) {
 			all = append(all, api.Dto(v))
 		}
 		return c.JSON(all)
