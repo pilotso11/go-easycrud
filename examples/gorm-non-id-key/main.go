@@ -1,0 +1,1 @@
+package gorm_non_id_key
