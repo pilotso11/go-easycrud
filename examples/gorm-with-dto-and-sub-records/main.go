@@ -26,7 +26,7 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/pilotso11/go-easyrest/gormrest"
+	"github.com/pilotso11/go-easyrest"
 	"github.com/xo/dburl"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -81,9 +81,9 @@ func main() {
 
 	api := app.Group("/api")
 	apiV1 := api.Group("/v1")
-	gormrest.RegisterApi(apiV1, db, "employees", gormrest.DefaultOptions[Employee, EmployeeDto]())
-	gormrest.RegisterApi(apiV1, db, "departments", gormrest.DefaultOptions[Department, DepartmentDto]())
-	gormrest.RegisterApi(apiV1, db, "locations", gormrest.DefaultOptions[Location, Location]())
+	easyrest.RegisterApi(apiV1, db, "employees", easyrest.DefaultOptions[Employee, EmployeeDto]())
+	easyrest.RegisterApi(apiV1, db, "departments", easyrest.DefaultOptions[Department, DepartmentDto]())
+	easyrest.RegisterApi(apiV1, db, "locations", easyrest.DefaultOptions[Location, Location]())
 
 	// Create some test data
 	elm := Location{Name: "Elm", Address: "1 Wall Street"}

@@ -23,7 +23,7 @@ err = db.AutoMigrate(&Employee{})
 app := fiber.New()
 
 // Create the REST API
-gormrest.RegisterApi(apiV1, db, "employees", gormrest.DefaultOptions[Employee, Employee]())
+easyrest.RegisterApi(apiV1, db, "employees", easyrest.DefaultOptions[Employee, Employee]())
 
 fiber.Serve("localhost:8080")
 

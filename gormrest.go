@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package gormrest
+package easyrest
 
 import (
 	"errors"
@@ -30,7 +30,6 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/pilotso11/go-easyrest"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -45,10 +44,10 @@ import (
 // Fields from T are copied to identically named fields in D before being sent on the REST API as json.
 // Inbound the reverse happens on any Mutate or Create.
 type Options[T any, D any] struct {
-	Delete    bool                                                       // Enable delete
-	Mutate    bool                                                       // Enable mutate
-	Create    bool                                                       // Enable create
-	Validator func(c *fiber.Ctx, action easyrest.Action, item ...T) bool // Validation function, item is empty if this is a find all query or an item is not found
+	Delete    bool                                              // Enable delete
+	Mutate    bool                                              // Enable mutate
+	Create    bool                                              // Enable create
+	Validator func(c *fiber.Ctx, action Action, item ...T) bool // Validation function, item is empty if this is a find all query or an item is not found
 }
 
 // DefaultOptions returns a basic configuration allowing all rest operations and with no authentication
@@ -57,7 +56,7 @@ func DefaultOptions[T any, D any]() Options[T, D] {
 		Delete: true,
 		Mutate: true,
 		Create: true,
-		Validator: func(c *fiber.Ctx, action easyrest.Action, item ...T) bool {
+		Validator: func(c *fiber.Ctx, action Action, item ...T) bool {
 			return true
 		},
 	}
@@ -91,7 +90,7 @@ func RegisterApi[T any, D any](app fiber.Router, db *gorm.DB, path string, optio
 	impl.dMap = buildDtoMap[T, D](impl.emptyT, impl.emptyD)
 
 	// Create the grest struct, assuming all the features are exposed.
-	fullApi := easyrest.Api[T, D]{
+	fullApi := Api[T, D]{
 		Path:        path,
 		Find:        impl.finder,
 		FindAll:     impl.findAll,
@@ -99,7 +98,7 @@ func RegisterApi[T any, D any](app fiber.Router, db *gorm.DB, path string, optio
 		Mutate:      impl.mutate,
 		Create:      impl.create,
 		Delete:      impl.delete,
-		SubEntities: []easyrest.SubEntity[T, D]{},
+		SubEntities: []SubEntity[T, D]{},
 		Validator:   impl.Validator,
 		Dto:         impl.copyToDto,
 	}
@@ -117,14 +116,14 @@ func RegisterApi[T any, D any](app fiber.Router, db *gorm.DB, path string, optio
 	// Create the API child maps
 	for _, c := range impl.dMap.children {
 		name := impl.dMap.tT.Field(c).Name
-		fullApi.SubEntities = append(fullApi.SubEntities, easyrest.SubEntity[T, D]{
+		fullApi.SubEntities = append(fullApi.SubEntities, SubEntity[T, D]{
 			SubPath: strings.ToLower(name),
 			Get:     impl.children(c),
 		})
 	}
 
 	// Finally register the API with Fiber
-	easyrest.RegisterAPI(app, fullApi)
+	RegisterAPI(app, fullApi)
 }
 
 // finder for single items.
